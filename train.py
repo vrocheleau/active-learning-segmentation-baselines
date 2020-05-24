@@ -1,16 +1,14 @@
-from datasets import dataset_loaders
+from torch.utils.data import DataLoader
 from sacred import Experiment
 from datasets.dataset_loaders import dataset_ingredient, load_glas
 from baal.active import ActiveLearningDataset, ActiveLearningLoop
-from baal.bayesian.dropout import MCDropoutModule
-from baal.modelwrapper import ModelWrapper
-from baal.active.heuristics import BALD
 import torch
 from torch import nn, optim
-import torch.nn.functional as F
+from torch.optim import SGD, lr_scheduler
 import random
 from models.unet import UNet
 from tqdm import tqdm
+from copy import deepcopy
 
 ex = Experiment('al_training', ingredients=[dataset_ingredient])
 
@@ -25,8 +23,40 @@ def conf():
     n_label_start = 5
     manual_seed = 0
     epochs = 30
-    al_iters = 10
+    al_iters = 1
     n_data_to_label = 5
+
+
+def train(model, train_ds, valid_ds, epochs, criterion, optimizer):
+
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    model = torch.nn.DataParallel(model)
+    model.to(device)
+    lr_step = 10
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=lr_step)
+
+    best_valid_dice = 0
+    best_valid_loss = float('inf')
+    best_model_dict = deepcopy(model.module.state_dict())
+
+    train_loader = DataLoader(train_ds, batch_size=5, shuffle=True)
+    val_loader = DataLoader(valid_ds, batch_size=1, shuffle=True)
+
+    for epoch in range(epochs): #itworks
+        model.train()
+
+        for images, masks in tqdm(train_loader, ncols=100, desc='Training'):
+            images, masks = images.to(device), masks.squeeze(1).to(device, non_blocking=True)
+
+            out = model(images)
+
+            loss = criterion(out, masks)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+
+
 
 @ex.automain
 def main(data_path, splits_path, preload, patch_size, batch_size, shuffle, n_label_start, manual_seed, epochs, al_iters, n_data_to_label):
@@ -35,46 +65,18 @@ def main(data_path, splits_path, preload, patch_size, batch_size, shuffle, n_lab
     active_set = ActiveLearningDataset(train_ds)
     active_set.label_randomly(n_label_start)
 
-    use_cuda = torch.cuda.is_available()
     torch.backends.cudnn.benchmark = True
     random.seed(manual_seed)
     torch.manual_seed(manual_seed)
 
+    # Load model
     model = UNet()
-    model = MCDropoutModule(model)
-
-    if use_cuda:
-        model.cuda()
 
     criterion = nn.CrossEntropyLoss()
-    # criterion = F.cross_entropy
-    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9, weight_decay=5e-4)
-
-    model = ModelWrapper(model, criterion)
-
-    heuristic = BALD(shuffle_prop=0.1)
-
-    active_loop = ActiveLearningLoop(active_set, model.predict_on_dataset, heuristic, n_data_to_label)
+    optimizer = SGD(model.parameters(), lr=0.001, momentum=0.9, weight_decay=5e-4)
 
     for al_it in tqdm(range(al_iters)):
-        # # train
-        model.train_on_dataset(active_set, optimizer, batch_size, epochs, use_cuda)
 
-        # test
-        model.test_on_dataset(test_ds, batch_size, use_cuda)
-        metrics = model.metrics
+        # train
+        train(model, active_set, val_ds, epochs, criterion, optimizer)
 
-        should_continue = active_loop.step()
-        model.reset_fcs()
-        if not should_continue:
-            break
-
-        val_loss = metrics['test_loss'].value
-        logs = {
-            "val": val_loss,
-            "epoch": al_it,
-            "train": metrics['train_loss'].value,
-            "labeled_data": active_set._labelled,
-            "Next Training set size": len(active_set)
-        }
-        print(logs)
