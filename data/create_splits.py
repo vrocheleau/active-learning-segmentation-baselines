@@ -1,16 +1,7 @@
 from pathlib import Path
 from sklearn.model_selection import train_test_split
 import csv
-
-
-def get_files(dir_path, ext):
-    return [str(path.name) for path in Path(dir_path).rglob('*.{}'.format(ext))]
-
-
-def csv_reader(fname):
-    with open(fname, 'r') as f:
-        out = list(csv.reader(f))
-    return out
+from utils import *
 
 
 class GlasSplit():
@@ -24,9 +15,9 @@ class GlasSplit():
         lbl = None
         for line in csv:
             if line[0] == name:
-                lbl = line[2]
+                lbl = line[2].strip()
                 break
-        return lbl
+        return 0 if lbl == 'benign' else 1
 
     def write_splits_csv(self, name, files, masks, labels):
         with open(name, 'w') as out:
