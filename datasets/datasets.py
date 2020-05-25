@@ -7,7 +7,7 @@ import torch
 
 class SegDataset(Dataset):
 
-    def __init__(self, data_dir, rows, data_transform, mask_transform, preload):
+    def __init__(self, data_dir, rows, data_transform, mask_transform, preload, resize=None):
         self.data_dir = data_dir
         self.rows = rows
         self.data_transform = data_transform

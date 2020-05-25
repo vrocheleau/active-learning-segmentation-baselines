@@ -38,26 +38,32 @@ def load_glas(data_path, splits_path, preload, patch_size, batch_size, shuffle):
     val_rows = csv_reader(val_split)
 
     train_trans = transforms.Compose([
-                transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.05),
-                transforms.ToTensor(),
-            ])
+        transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.05),
+        transforms.CenterCrop((453, 589)),
+        transforms.ToTensor(),
+    ])
+
+    test_trans = transforms.Compose([
+        transforms.CenterCrop((453, 589)),
+        transforms.ToTensor(),
+    ])
 
     train_ds = SegDataset(data_dir=data_path,
                           rows=train_rows,
                           data_transform=train_trans,
-                          mask_transform=transforms.ToTensor(),
+                          mask_transform=test_trans,
                           preload=preload)
 
     test_ds = SegDataset(data_dir=data_path,
                          rows=test_rows,
-                         data_transform=transforms.ToTensor(),
-                         mask_transform=transforms.ToTensor(),
+                         data_transform=test_trans,
+                         mask_transform=test_trans,
                          preload=preload)
 
     val_ds = SegDataset(data_dir=data_path,
                         rows=val_rows,
-                        data_transform=transforms.ToTensor(),
-                        mask_transform=transforms.ToTensor(),
+                        data_transform=test_trans,
+                        mask_transform=test_trans,
                         preload=preload)
 
     return train_ds, test_ds, val_ds
