@@ -89,6 +89,6 @@ if __name__ == '__main__':
     active_set = ActiveLearningDataset(train_ds)
     active_set.label_randomly(5)
 
-    img, mask = train_ds.__getitem__(0)
+    img, mask = train_ds.__getitem__(10)
 
     print(active_set.n_labelled)

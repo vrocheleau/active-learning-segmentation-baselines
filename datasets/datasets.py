@@ -44,7 +44,6 @@ class SegDataset(Dataset):
 
         if self.mask_transform:
             mask = self.mask_transform(mask)
-            mask = mask.new_tensor(data=mask, dtype=torch.int64)
 
         return image, mask
 

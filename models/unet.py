@@ -80,7 +80,7 @@ if __name__ == '__main__':
     unet = UNet()
     # print(unet)
 
-    x = torch.rand(2, 3, 733, 427)
+    x = torch.rand(1, 3, 733, 427)
 
     with torch.no_grad():
         print('Input:', x.shape, '-> UNet(input):', unet(x).shape)
