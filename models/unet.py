@@ -16,7 +16,7 @@ class DoubleConv(nn.Sequential):
             ('conv2', nn.Conv2d(out_channels, out_channels, 3, stride=1, padding=1, bias=False)),
             ('bn2', nn.BatchNorm2d(out_channels)),
             ('relu2', nn.ReLU(True)),
-            ('dropout', nn.Dropout(0.5))
+            ('dropout', nn.Dropout(0.1))
         ])
 
         for name, module in layers.items():

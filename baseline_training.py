@@ -6,6 +6,7 @@ from torch import nn, optim
 import random
 from models.unet import UNet
 from active_learning.method_wrapper import MCDropout_Uncert
+import torch.nn.functional as F
 
 ex = Experiment('baseline_training', ingredients=[dataset_ingredient])
 
@@ -15,30 +16,32 @@ def conf():
     splits_path = 'data/splits/glas'
     preload = True
     patch_size = None
-    batch_size = 8
+    batch_size = 16
     shuffle = True
     manual_seed = 0
-    epochs = 50
+    epochs = 100
     n_classes = 2
 
 @ex.automain
 def main(data_path, splits_path, preload, patch_size, batch_size, shuffle, manual_seed, epochs, n_classes):
 
-    train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload)
-
     torch.backends.cudnn.benchmark = True
     random.seed(manual_seed)
     torch.manual_seed(manual_seed)
+
+    train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload)
+
+    [train_ds.__getitem__(i)[0].numpy().max() for i in range(train_ds.n)]
 
     # Load model
     model = UNet(in_channels=3, n_classes=n_classes)
 
     print(model)
 
-    method_wrapper = MCDropout_Uncert(base_model=model, n_classes=n_classes, criterion=nn.CrossEntropyLoss())
+    method_wrapper = MCDropout_Uncert(base_model=model, n_classes=n_classes)
 
     method_wrapper.train(train_ds=train_ds, val_ds=val_ds, epochs=epochs, batch_size=batch_size)
 
-    test_metrics = method_wrapper.evaluate(DataLoader(dataset=test_ds, batch_size=batch_size, shuffle=True), test=True)
+    test_metrics = method_wrapper.evaluate(DataLoader(dataset=test_ds, batch_size=1, shuffle=True), test=True)
 
     print(test_metrics['mean_dice'])

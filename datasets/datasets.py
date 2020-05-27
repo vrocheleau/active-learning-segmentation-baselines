@@ -7,13 +7,13 @@ import torch
 
 class SegDataset(Dataset):
 
-    def __init__(self, data_dir, rows, data_transform, mask_transform, preload, resize=None):
+    def __init__(self, data_dir, rows, data_transform, mask_transform, preload, augment=True, resize=None):
         self.data_dir = data_dir
         self.rows = rows
         self.data_transform = data_transform
         self.mask_transform = mask_transform
         self.preload = preload
-
+        self.augment = augment
         self.n = len(rows)
         self.joined_rows = [[join(data_dir, file), join(data_dir, mask), lbl] for file, mask, lbl in rows]
 
@@ -38,6 +38,17 @@ class SegDataset(Dataset):
 
         image = image.convert('RGB')
         mask = mask.convert('L')
+
+        if self.augment:
+
+            angle = randint(0, 3) * 90
+            image = image.rotate(angle)
+            mask = mask.rotate(angle)
+
+            # flip
+            if random() > 0.5:
+                image = image.transpose(Image.FLIP_LEFT_RIGHT)
+                mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
 
         if self.data_transform:
             image = self.data_transform(image)

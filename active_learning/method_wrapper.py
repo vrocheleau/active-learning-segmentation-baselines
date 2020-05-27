@@ -6,14 +6,13 @@ from copy import deepcopy
 import numpy as np
 from baal.bayesian.dropout import MCDropoutModule
 from utils.metrics import Evaluator
+from utils.utils import ExpandedRandomSampler
+import torch.nn.functional as F
 
 class AbstractMethodWrapper:
 
-    def __init__(self, base_model, n_classes, criterion, **kwargs):
-        self.base_model = base_model
+    def __init__(self, base_model, n_classes):
         self.n_classes = n_classes
-        self.criterion = criterion
-        self.kwargs = kwargs
 
     def train(self, train_ds, val_ds, epochs, batch_size, model_checkpoint=True, early_stopping=False):
         raise NotImplementedError
@@ -30,28 +29,34 @@ class AbstractMethodWrapper:
 
 class MCDropout_Uncert(AbstractMethodWrapper):
 
-    def __init__(self, base_model, n_classes, **kwargs):
-        super().__init__(base_model, n_classes, **kwargs)
-        self.base_model = base_model
-        self.mc_model = MCDropoutModule(base_model)
-        self.base_state_dict = deepcopy(self.mc_model.state_dict())
+    def __init__(self, base_model, n_classes):
+        super().__init__(base_model, n_classes)
+        self.model = MCDropoutModule(base_model)
+        # self.model = base_model
+
+        self.base_state_dict = deepcopy(self.model.state_dict())
 
     def train(self, train_ds, val_ds, epochs, batch_size, model_checkpoint=True, early_stopping=False):
 
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        model = torch.nn.DataParallel(self.mc_model)
-        model.to(device)
-        model.train()
+        self.model = torch.nn.DataParallel(self.model)
+        self.model.to(device)
 
-        optimizer = SGD(model.parameters(), lr=0.001, momentum=0.9, weight_decay=5e-4)
+        # optimizer = SGD(self.model.parameters(), lr=0.001, momentum=0.9, weight_decay=5e-4)
 
-        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-        val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=True)
+        optimizer = SGD(self.model.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4, nesterov=True)
+        scheduler = lr_scheduler.StepLR(optimizer, step_size=25)
+
+        train_loader = DataLoader(train_ds,
+                                  batch_size=batch_size,
+                                  sampler=ExpandedRandomSampler(train_ds.n, multiplier=8))
+        val_loader = DataLoader(val_ds, batch_size=1, shuffle=True)
 
         best_val_loss = float('inf')
         best_state_dict = self.base_state_dict
         # for epoch in tqdm(range(epochs), ncols=100, desc='Training'):
         for epoch in range(epochs):
+            self.model.train()
 
             print('Epoch {} / {}'.format(epoch, epochs))
 
@@ -60,29 +65,26 @@ class MCDropout_Uncert(AbstractMethodWrapper):
                 images, masks = images.to(device), masks.squeeze(1).to(device, non_blocking=True)
                 class_masks = (masks != 0).long()
 
-                out = model(images)
+                out = self.model(images)
 
-                loss = self.criterion(out, class_masks)
+                # loss = self.criterion(out, class_masks)
+                loss = F.cross_entropy(out, class_masks)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-
+            scheduler.step()
             val_metrics = self.evaluate(val_loader, test=False)
             if val_metrics['losses'].mean() <= best_val_loss and model_checkpoint:
                 best_val_loss = val_metrics['losses'].mean()
-                best_state_dict = deepcopy(model.state_dict())
-                if early_stopping:
-                    break
+                best_state_dict = deepcopy(self.model.state_dict())
+
             print('Val loss: {}'.format(val_metrics['losses'].mean()))
             print('Val mean dice: {}'.format(val_metrics['mean_dice'].mean()))
-        model.load_state_dict(best_state_dict)
-        self.mc_model.load_state_dict(best_state_dict)
-        self.base_model.load_state_dict(best_state_dict)
-
+        self.model.load_state_dict(best_state_dict)
 
     def evaluate(self, loader, test=False):
-        self.base_model.eval()
+        self.model.eval()
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
         all_labels = []
@@ -99,9 +101,8 @@ class MCDropout_Uncert(AbstractMethodWrapper):
                 image, mask = image.to(device), mask.squeeze(1).to(device, non_blocking=True)
                 class_masks = (mask != 0).long()
 
-                seg_logits = self.base_model(image)
-                # loss = nn.CrossEntropyLoss(seg_logits, t_segmentation)
-                loss = self.criterion(seg_logits, class_masks).item()
+                seg_logits = self.model(image)
+                loss = F.cross_entropy(seg_logits, class_masks).item()
 
                 seg_probs = torch.softmax(seg_logits, 1)
                 seg_preds = seg_logits.argmax(1)
