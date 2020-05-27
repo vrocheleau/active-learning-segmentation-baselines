@@ -29,7 +29,7 @@ def glas():
 
 
 @dataset_ingredient.capture
-def load_glas(data_path, splits_path, preload, patch_size, batch_size, shuffle):
+def load_glas(data_path, splits_path, preload):
 
     train_split, test_split, val_split = get_paths(splits_path, 'csv')
 
@@ -85,10 +85,10 @@ if __name__ == '__main__':
     batch_size = 16
     shuffle = True
 
-    train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload, patch_size, batch_size, shuffle)
+    train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload)
     active_set = ActiveLearningDataset(train_ds)
     active_set.label_randomly(5)
 
-    img, mask = train_ds.__getitem__(10)
+    img, mask, label, name = train_ds.__getitem__(10)
 
     print(active_set.n_labelled)

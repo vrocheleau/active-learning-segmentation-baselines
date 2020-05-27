@@ -10,14 +10,12 @@ from models.unet import UNet
 from tqdm import tqdm
 from copy import deepcopy
 import numpy as np
-from scipy.ndimage.morphology import distance_transform_edt
-from PIL import Image
 from matplotlib import pyplot
 from baal.bayesian.dropout import MCDropoutModule
 import os, shutil
+from sklearn.preprocessing import MinMaxScaler
 
 ex = Experiment('al_training', ingredients=[dataset_ingredient])
-
 
 @ex.config
 def conf():
@@ -25,9 +23,9 @@ def conf():
     splits_path = 'data/splits/glas'
     preload = False
     patch_size = None
-    batch_size = 16
+    batch_size = 32
     shuffle = True
-    n_label_start = 5
+    n_label_start = 50
     manual_seed = 0
     epochs = 30
     al_cycles = 100
@@ -52,7 +50,7 @@ def train(model, train_ds, valid_ds, epochs, criterion, optimizer):
     for epoch in tqdm(range(epochs), ncols=100, desc='Training'):
         model.train()
 
-        for images, masks in train_loader:
+        for images, masks, _, _ in train_loader:
             images, masks = images.to(device), masks.squeeze(1).to(device, non_blocking=True)
             class_masks = (masks != 0).long()
 
@@ -87,7 +85,7 @@ def rank_mc_dropout_euclidean(model, train_ds, n_iters, n_to_label, al_cycle):
     with torch.no_grad():
         model.eval()
 
-        for i, (image, _) in enumerate(tqdm(pool_loader, desc='Pool ranking')):
+        for i, (image, _, _, name) in enumerate(tqdm(pool_loader, desc='Pool ranking')):
 
             stack = []
             for _ in range(n_iters):
@@ -96,17 +94,21 @@ def rank_mc_dropout_euclidean(model, train_ds, n_iters, n_to_label, al_cycle):
                 pred = out.cpu().numpy().squeeze(0).argmax(0)
                 stack.append(pred)
 
+            scaler = MinMaxScaler()
             stack = np.array(stack)
             map = np.var(stack, axis=0)
+
+            map = scaler.fit_transform(map)
+
             uncerts[i] = np.sum(np.std(stack, axis=0))
 
             fig_path = os.path.join(dir, 'map_{}.png'.format(i))
-            pyplot.figure()
-            pyplot.imshow(map)
+            fig = pyplot.figure()
+            pyplot.imshow(map, cmap='viridis')
+            pyplot.colorbar()
+            pyplot.title('{} uncertainty map'.format(name[0]))
             pyplot.savefig(fig_path)
-
-            # im = Image.fromarray(map, mode='RGB')
-            # im.save('maps/{}_map.png'.format(i))
+            pyplot.close(fig)
 
     # Get ids of n_to_label most uncertain samples in the pool
     idx = np.argpartition(uncerts, -n_to_label)[-n_to_label:]
@@ -115,7 +117,8 @@ def rank_mc_dropout_euclidean(model, train_ds, n_iters, n_to_label, al_cycle):
 
 @ex.automain
 def main(data_path, splits_path, preload, patch_size, batch_size, shuffle, n_label_start, manual_seed, epochs, al_cycles, n_data_to_label, mc_iters):
-    train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload, patch_size, batch_size, shuffle)
+
+    train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload)
     active_set = ActiveLearningDataset(train_ds)
 
     active_set.label_randomly(n_label_start)

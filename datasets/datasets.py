@@ -45,7 +45,8 @@ class SegDataset(Dataset):
         if self.mask_transform:
             mask = self.mask_transform(mask)
 
-        return image, mask
+        file_name = self.rows[item][0]
+        return image, mask, label, file_name
 
 
     def load_images(self, data_dir, files):
