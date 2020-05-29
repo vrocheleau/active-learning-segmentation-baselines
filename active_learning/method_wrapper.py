@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 import torch
-from torch.optim import SGD, lr_scheduler
+from torch.optim import SGD, lr_scheduler, adam
 from tqdm import tqdm
 from copy import deepcopy
 import numpy as np
@@ -8,13 +8,17 @@ from baal.bayesian.dropout import MCDropoutModule
 from utils.metrics import Evaluator
 from utils.utils import ExpandedRandomSampler
 import torch.nn.functional as F
+from torch.utils.tensorboard import SummaryWriter
+
 
 class AbstractMethodWrapper:
 
-    def __init__(self, base_model, n_classes):
+    def __init__(self, base_model, n_classes, state_dict_path):
         self.n_classes = n_classes
+        self.state_dict_path = state_dict_path
+        self.base_model = base_model
 
-    def train(self, train_ds, val_ds, epochs, batch_size, model_checkpoint=True, early_stopping=False):
+    def train(self, train_ds, val_ds, epochs, batch_size, optimizer, scheduler=None, model_checkpoint=True, early_stopping=False):
         raise NotImplementedError
 
     def evaluate(self, loader, test=False):
@@ -27,40 +31,41 @@ class AbstractMethodWrapper:
         raise NotImplementedError
 
 
-class MCDropout_Uncert(AbstractMethodWrapper):
+class MCDropoutUncert(AbstractMethodWrapper):
 
-    def __init__(self, base_model, n_classes):
-        super().__init__(base_model, n_classes)
+    def __init__(self, base_model, n_classes, state_dict_path):
+        super().__init__(base_model, n_classes, state_dict_path)
         self.model = MCDropoutModule(base_model)
-        # self.model = base_model
+        # self.base_state_dict = deepcopy(self.model.module.state_dict())
+        torch.save(self.model.state_dict(), self.state_dict_path)
 
-        self.base_state_dict = deepcopy(self.model.state_dict())
-
-    def train(self, train_ds, val_ds, epochs, batch_size, model_checkpoint=True, early_stopping=False):
+    def train(self, train_ds, val_ds, epochs, batch_size, opt_sch_callable, test_ds=None, model_checkpoint=True, early_stopping=False):
 
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.model = torch.nn.DataParallel(self.model)
         self.model.to(device)
 
-        # optimizer = SGD(self.model.parameters(), lr=0.001, momentum=0.9, weight_decay=5e-4)
-
-        optimizer = SGD(self.model.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4, nesterov=True)
-        scheduler = lr_scheduler.StepLR(optimizer, step_size=25)
+        optimizer, scheduler = opt_sch_callable(self.model)
 
         train_loader = DataLoader(train_ds,
                                   batch_size=batch_size,
-                                  sampler=ExpandedRandomSampler(train_ds.n, multiplier=8))
-        val_loader = DataLoader(val_ds, batch_size=1, shuffle=True)
+                                  sampler=ExpandedRandomSampler(len(train_ds), multiplier=8))
+        val_loader = DataLoader(val_ds, batch_size=1, shuffle=False)
+
+        test_loader = None
+        if test_ds is not None:
+            test_loader = DataLoader(test_ds, batch_size=1, shuffle=False)
 
         best_val_loss = float('inf')
-        best_state_dict = self.base_state_dict
-        # for epoch in tqdm(range(epochs), ncols=100, desc='Training'):
+        best_state_dict = self.model.state_dict()
+
+        writer = SummaryWriter()
+
         for epoch in range(epochs):
             self.model.train()
 
-            print('Epoch {} / {}'.format(epoch, epochs))
+            print('Epoch {} / {}'.format(epoch + 1, epochs))
 
-            # for images, masks, _, _ in train_loader:
             for images, masks, _, _ in tqdm(train_loader, ncols=100, desc='Training'):
                 images, masks = images.to(device), masks.squeeze(1).to(device, non_blocking=True)
                 class_masks = (masks != 0).long()
@@ -73,14 +78,25 @@ class MCDropout_Uncert(AbstractMethodWrapper):
                 loss.backward()
                 optimizer.step()
 
-            scheduler.step()
+            if scheduler is not None:
+                scheduler.step()
             val_metrics = self.evaluate(val_loader, test=False)
             if val_metrics['losses'].mean() <= best_val_loss and model_checkpoint:
                 best_val_loss = val_metrics['losses'].mean()
                 best_state_dict = deepcopy(self.model.state_dict())
 
+            if test_loader is not None:
+                test_metrics = self.evaluate(test_loader, test=True)
+                print('Test loss: {}'.format(test_metrics['losses'].mean()))
+                print('Test mean dice: {}'.format(test_metrics['mean_dice'].mean()))
+                writer.add_scalar('Loss/test', test_metrics['losses'].mean(), epoch)
+                writer.add_scalar('Mean dice/test', test_metrics['mean_dice'], epoch)
+
             print('Val loss: {}'.format(val_metrics['losses'].mean()))
             print('Val mean dice: {}'.format(val_metrics['mean_dice'].mean()))
+            writer.add_scalar('Loss/val', val_metrics['losses'].mean(), epoch)
+            writer.add_scalar('Mean dice', val_metrics['mean_dice'], epoch)
+
         self.model.load_state_dict(best_state_dict)
 
     def evaluate(self, loader, test=False):
@@ -104,7 +120,6 @@ class MCDropout_Uncert(AbstractMethodWrapper):
                 seg_logits = self.model(image)
                 loss = F.cross_entropy(seg_logits, class_masks).item()
 
-                seg_probs = torch.softmax(seg_logits, 1)
                 seg_preds = seg_logits.argmax(1)
                 evaluator.add_batch(class_masks, seg_preds)
                 image_evaluator.add_batch(class_masks, seg_preds)
@@ -145,3 +160,27 @@ class MCDropout_Uncert(AbstractMethodWrapper):
         }
 
         return metrics
+
+    def predict(self, dataset, n_predictions):
+        self.model.eval()
+        loader = DataLoader(dataset, batch_size=1, shuffle=False)
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+        predictions = []
+        with torch.no_grad():
+            for image, _, _, name in tqdm(loader, ncols=80, desc='MC predictions'):
+                image = image.to(device)
+
+                stack = []
+                for _ in range(n_predictions):
+                    out = self.model(image)
+                    pred = out.cpu().numpy().squeeze(0).argmax(0)
+                    stack.append(pred)
+                stack_name_tupple = (np.array(stack), name[0])
+                predictions.append(stack_name_tupple)
+        return predictions
+
+    def reset_params(self):
+        self.model = MCDropoutModule(self.base_model)
+        self.model.load_state_dict(torch.load(self.state_dict_path))
+        # self.base_state_dict = deepcopy(self.model.module.state_dict())

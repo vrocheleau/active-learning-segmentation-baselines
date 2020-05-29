@@ -2,11 +2,14 @@ from torch.utils.data import DataLoader
 from sacred import Experiment
 from datasets.dataset_loaders import dataset_ingredient, load_glas
 import torch
+from torch.backends import cudnn
 from torch import nn, optim
 import random
 from models.unet import UNet
-from active_learning.method_wrapper import MCDropout_Uncert
+from active_learning.method_wrapper import MCDropoutUncert
 import torch.nn.functional as F
+from sklearn.model_selection import GridSearchCV
+from torch.optim import SGD, lr_scheduler
 
 ex = Experiment('baseline_training', ingredients=[dataset_ingredient])
 
@@ -15,33 +18,49 @@ def conf():
     data_path = 'data/GlaS'
     splits_path = 'data/splits/glas'
     preload = True
-    patch_size = None
     batch_size = 16
     shuffle = True
     manual_seed = 0
-    epochs = 100
+    epochs = 1
     n_classes = 2
+    patch_size = (416, 416)
+
+def get_optimizer_scheduler(model):
+    optimizer = SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4, nesterov=True)
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=40)
+    return optimizer, scheduler
 
 @ex.automain
 def main(data_path, splits_path, preload, patch_size, batch_size, shuffle, manual_seed, epochs, n_classes):
 
-    torch.backends.cudnn.benchmark = True
-    random.seed(manual_seed)
+    cudnn.deterministic = True
     torch.manual_seed(manual_seed)
+    random.seed(manual_seed)
 
-    train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload)
+    train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload, patch_size=patch_size)
 
-    [train_ds.__getitem__(i)[0].numpy().max() for i in range(train_ds.n)]
+    # scheduler = lr_scheduler.StepLR(optimizer, step_size=30)
+    #
+    # train_loader = DataLoader(train_ds,
+    #                           batch_size=batch_size,
+    #                           sampler=ExpandedRandomSampler(train_ds.n, multiplier=8))
 
     # Load model
-    model = UNet(in_channels=3, n_classes=n_classes)
+    model = UNet(in_channels=3, n_classes=n_classes, dropout=True)
 
     print(model)
 
-    method_wrapper = MCDropout_Uncert(base_model=model, n_classes=n_classes)
+    method_wrapper = MCDropoutUncert(base_model=model, n_classes=n_classes)
 
-    method_wrapper.train(train_ds=train_ds, val_ds=val_ds, epochs=epochs, batch_size=batch_size)
+    method_wrapper.train(train_ds=train_ds,
+                         val_ds=val_ds,
+                         test_ds=test_ds,
+                         epochs=epochs,
+                         batch_size=batch_size,
+                         opt_sch_callable=get_optimizer_scheduler)
 
     test_metrics = method_wrapper.evaluate(DataLoader(dataset=test_ds, batch_size=1, shuffle=True), test=True)
+
+    method_wrapper.predict(val_ds, 50)
 
     print(test_metrics['mean_dice'])

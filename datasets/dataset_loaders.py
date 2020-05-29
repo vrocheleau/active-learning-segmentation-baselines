@@ -24,12 +24,12 @@ def glas():
     name = 'glas'
     folds_dir = 'folds/glas'
     batch_size = 16
-    patch_size = 416
+    patch_size = (416, 416)
     sampler_mul = 8
 
 
 @dataset_ingredient.capture
-def load_glas(data_path, splits_path, preload):
+def load_glas(data_path, splits_path, preload, patch_size):
 
     train_split, test_split, val_split = get_paths(splits_path, 'csv')
 
@@ -39,12 +39,10 @@ def load_glas(data_path, splits_path, preload):
 
     train_trans = transforms.Compose([
         transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.05),
-        transforms.CenterCrop((416, 416)),
         transforms.ToTensor(),
     ])
 
     test_trans = transforms.Compose([
-        transforms.CenterCrop((416, 416)),
         transforms.ToTensor(),
     ])
 
@@ -52,6 +50,8 @@ def load_glas(data_path, splits_path, preload):
                           rows=train_rows,
                           data_transform=train_trans,
                           mask_transform=test_trans,
+                          augment=True,
+                          patch_size=patch_size,
                           preload=preload)
 
     test_ds = SegDataset(data_dir=data_path,

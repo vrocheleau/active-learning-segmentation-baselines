@@ -7,3 +7,6 @@ models/__pycache__/*
 utils/__pycache__/*
 maps/*
 active_learning/__pycache__/*
+results/*
+runs/*
+state_dicts/*

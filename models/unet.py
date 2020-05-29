@@ -6,35 +6,39 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class DoubleConv(nn.Sequential):
-    def __init__(self, in_channels, out_channels, stride=1):
+    def __init__(self, in_channels, out_channels, stride=1, dropout=False):
         super(DoubleConv, self).__init__()
 
-        layers = OrderedDict([
+        modules_list = [
             ('conv1', nn.Conv2d(in_channels, out_channels, 3, stride=stride, padding=1, bias=False)),
             ('bn1', nn.BatchNorm2d(out_channels)),
             ('relu1', nn.ReLU(True)),
             ('conv2', nn.Conv2d(out_channels, out_channels, 3, stride=1, padding=1, bias=False)),
             ('bn2', nn.BatchNorm2d(out_channels)),
             ('relu2', nn.ReLU(True)),
-            ('dropout', nn.Dropout(0.1))
-        ])
+        ]
+
+        if dropout:
+            modules_list.append(('dropout', nn.Dropout(0.2)))
+
+        layers = OrderedDict(modules_list)
 
         for name, module in layers.items():
             self.add_module(name, module)
 
 class UNet(nn.Module):
-    def __init__(self, in_channels=3, n_classes=2, base_width=16):
+    def __init__(self, in_channels=3, n_classes=2, base_width=16, dropout=False):
         super(UNet, self).__init__()
 
         self.base_width = base_width
 
-        self.init_conv = DoubleConv(in_channels, self.base_width, stride=1)
+        self.init_conv = DoubleConv(in_channels, self.base_width, stride=1, dropout=dropout)
         self.down_convs = nn.ModuleList([
-            DoubleConv(self.base_width, self.base_width * 2, stride=2),
-            DoubleConv(self.base_width * 2, self.base_width * 4, stride=2),
-            DoubleConv(self.base_width * 4, self.base_width * 8, stride=2),
-            DoubleConv(self.base_width * 8, self.base_width * 16, stride=2),
-            DoubleConv(self.base_width * 16, self.base_width * 32, stride=2),
+            DoubleConv(self.base_width, self.base_width * 2, stride=2, dropout=dropout),
+            DoubleConv(self.base_width * 2, self.base_width * 4, stride=2, dropout=dropout),
+            DoubleConv(self.base_width * 4, self.base_width * 8, stride=2, dropout=dropout),
+            DoubleConv(self.base_width * 8, self.base_width * 16, stride=2, dropout=dropout),
+            DoubleConv(self.base_width * 16, self.base_width * 32, stride=2, dropout=dropout),
         ])
 
         self.upsample_convs = nn.ModuleList([
