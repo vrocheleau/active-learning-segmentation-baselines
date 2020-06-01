@@ -174,6 +174,7 @@ class MCDropoutUncert(AbstractMethodWrapper):
                 stack = []
                 for _ in range(n_predictions):
                     out = self.model(image)
+                    out = torch.sigmoid(out)
                     pred = out.cpu().numpy().squeeze(0).argmax(0)
                     stack.append(pred)
                 stack_name_tupple = (np.array(stack), name[0])

@@ -18,9 +18,9 @@ from torch.backends import cudnn
 from active_learning.method_wrapper import MCDropoutUncert
 from active_learning import heuristics
 from torchvision import transforms
+from active_learning.maps import VarianceMap, EdtVarMap
 
 ex = Experiment('al_training', ingredients=[dataset_ingredient])
-
 
 @ex.config
 def conf():
@@ -32,14 +32,16 @@ def conf():
     n_label_start = 5
     manual_seed = 1337
     epochs = 50
-    al_cycles = 10
-    n_data_to_label = 5
-    mc_iters = 30
+    al_cycles = 20
+    n_data_to_label = 1
+    mc_iters = 50
     base_state_dict_path = 'state_dicts/al_model.pt'
     heuristic = 'mc'
+    run = 0
+    results_dir = 'results/exp_4/'
 
 
-def save_prediction_maps(stacks_list, al_cycle):
+def save_prediction_maps(stacks_list, al_cycle, map_processor):
     # Check if map dirs exist
     dir = 'maps/run_{}/'.format(al_cycle)
     if not os.path.isdir(dir):
@@ -49,17 +51,7 @@ def save_prediction_maps(stacks_list, al_cycle):
         os.mkdir(dir)
 
     for i, (stack, name) in enumerate(tqdm(stacks_list, ncols=80, desc="Save pred maps")):
-        scaler = MinMaxScaler()
-        map = np.var(stack, axis=0)
-        map = scaler.fit_transform(map)
-
-        fig_path = os.path.join(dir, 'map_{}.png'.format(i))
-        fig = pyplot.figure()
-        pyplot.imshow(map, cmap='viridis')
-        pyplot.colorbar()
-        pyplot.title('{} uncertainty map'.format(name))
-        pyplot.savefig(fig_path)
-        pyplot.close(fig)
+        map_processor.process_maps(stack, name, i, dir)
 
 
 def get_optimizer_scheduler(model):
@@ -76,21 +68,25 @@ pool_specifics = {
 }
 
 heuristics_dict = {
-    'mc': heuristics.MCDropoutUncertainty(),
+    'mc': heuristics.MCDropoutUncertainty(edt=True),
     'rand': heuristics.Random()
 }
 
 @ex.automain
 def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start, manual_seed, epochs, al_cycles,
-         n_data_to_label, mc_iters, base_state_dict_path, heuristic):
-    # cudnn.deterministic = True
+         n_data_to_label, mc_iters, base_state_dict_path, heuristic, run, results_dir):
+
+    print("Start of AL experiment using {} heuristic".format(heuristic))
+    torch.backends.cudnn.benchmark = True
     torch.manual_seed(manual_seed)
     random.seed(manual_seed)
     np.random.seed(manual_seed)
 
     train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload, patch_size=patch_size)
     active_set = ActiveLearningDataset(train_ds, pool_specifics=pool_specifics)
-    active_set.label_randomly(n_label_start)
+
+    # active_set.label_randomly(n_label_start)
+    active_set.label(range(n_label_start))
 
     # Load model
     model = UNet(in_channels=3, n_classes=2, dropout=True)
@@ -124,11 +120,12 @@ def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start,
         # Make predictions on unlabeled pool
         predictions = method_wrapper.predict(active_set.pool, n_predictions=mc_iters)
 
-        save_prediction_maps(predictions, al_it)
+        save_prediction_maps(predictions, al_it, map_processor=EdtVarMap())
 
-        # heuristic = heuristics.MCDropoutUncertainty()
         heur = heuristics_dict[heuristic]
         to_label = heur.get_to_label(predictions=predictions, model=None, n_to_label=n_data_to_label)
+
+        del predictions
 
         # Label new samples
         active_set.label(to_label)
@@ -137,7 +134,5 @@ def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start,
             last_cycle = True
 
     print(mean_dices)
-
-    run = 1
-    np.save('results/{}_{}.npy'.format(heuristic, run), np.array(mean_dices))
+    np.save(results_dir + '{}_{}.npy'.format(heuristic, run), np.array(mean_dices))
 

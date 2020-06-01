@@ -85,7 +85,7 @@ if __name__ == '__main__':
     batch_size = 16
     shuffle = True
 
-    train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload)
+    train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload, patch_size=None)
     active_set = ActiveLearningDataset(train_ds)
     active_set.label_randomly(5)
 
