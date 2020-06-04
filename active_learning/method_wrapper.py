@@ -168,17 +168,14 @@ class MCDropoutUncert(AbstractMethodWrapper):
 
         predictions = []
         with torch.no_grad():
-            for image, _, _, name in tqdm(loader, ncols=80, desc='MC predictions'):
+            for image, mask, lbl, name in tqdm(loader, ncols=80, desc='MC predictions'):
                 image = image.to(device)
 
-                stack = []
-                for _ in range(n_predictions):
-                    out = self.model(image)
-                    out = torch.sigmoid(out)
-                    pred = out.cpu().numpy().squeeze(0).argmax(0)
-                    stack.append(pred)
-                stack_name_tupple = (np.array(stack), name[0])
-                predictions.append(stack_name_tupple)
+                preds = [self.model(image).squeeze(0) for _ in range(n_predictions)]
+                stack = torch.stack(preds, dim=-1).cpu().numpy()
+                stack_tuple = (stack, image.cpu().numpy(), mask.numpy(), name, lbl)
+                predictions.append(stack_tuple)
+
         return predictions
 
     def reset_params(self):

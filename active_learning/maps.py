@@ -4,16 +4,17 @@ import matplotlib.pyplot as plt
 import os
 from scipy.ndimage.morphology import distance_transform_edt
 import cv2
+from scipy.special import softmax
 
 class AbstractMapProcessor:
 
-    def process_maps(self, predictions, sample_name, sample_num, save_dir):
+    def process_maps(self, predictions, sample_name, sample_num, save_dir, input_img=None, gt_img=None):
         raise NotImplementedError
 
 
 class VarianceMap(AbstractMapProcessor):
 
-    def process_maps(self, predictions, sample_name, sample_num, save_dir):
+    def process_maps(self, predictions, sample_name, sample_num, save_dir, input_img=None, gt_img=None):
         scaler = MinMaxScaler()
         map = np.var(predictions, axis=0)
         map = scaler.fit_transform(map)
@@ -29,9 +30,13 @@ class VarianceMap(AbstractMapProcessor):
 
 class EdtVarMap(AbstractMapProcessor):
 
-    def process_maps(self, predictions, sample_name, sample_num, save_dir):
-        std = np.std(predictions, axis=0)
-        transform = distance_transform_edt((1 - np.mean(predictions, axis=0)))
+    def process_maps(self, predictions, sample_name, sample_num, save_dir, input_img=None, gt_img=None):
+
+        pred_probs = softmax(predictions, 0)
+        pred_classes = np.argmax(pred_probs, 0)
+        std = np.std(pred_classes, axis=-1)
+        transform = distance_transform_edt((1 - np.mean(pred_classes, axis=-1)))
+
         map = np.multiply(std, transform)
         map = MinMaxScaler().fit_transform(map)
 
@@ -40,5 +45,50 @@ class EdtVarMap(AbstractMapProcessor):
         plt.imshow(map, cmap='viridis')
         plt.colorbar()
         plt.title('{} edt uncertainty map'.format(sample_name))
+        plt.savefig(fig_path)
+        plt.close(fig)
+
+class ComparativeVarianceMap(AbstractMapProcessor):
+
+    def process_maps(self, predictions, sample_name, sample_num, save_dir, input_img=None, gt_img=None):
+
+        pred_probs = softmax(predictions, 0)
+        pred_classes = np.argmax(pred_probs, 0)
+
+        # Thresh gt
+        gt_image = gt_img.squeeze(1)
+        gt_image = (gt_image != 0) * 1
+
+        # variance map
+        std = np.std(pred_classes, axis=-1)
+        map = MinMaxScaler().fit_transform(std)
+
+        # Threshold mean prediction
+        mean_preds = np.mean(pred_classes, axis=-1)
+        thresh_mean_preds = (mean_preds > 0.5) * 1.0
+
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2)
+
+        # Plot input image
+        # [3, h, w] => [h, w, 3]
+        ax1.imshow(input_img.squeeze(0).transpose((1,2,0)))
+        ax1.set_title('Input image')
+
+        # Plot uncertainty map
+        ax2.set_title('Model uncertainty')
+        # pcm = ax2.pcolormesh(map, cmap='viridis')
+        # fig.colorbar(pcm, ax=ax2)
+        ax2.imshow(map, cmap='viridis')
+
+        # Plot gt image
+        ax3.imshow(gt_image.squeeze(0))
+        ax3.set_title('Ground truth segmentation')
+
+        # Plot avg segmentation results
+        ax4.imshow(thresh_mean_preds)
+        ax4.set_title('Thresholded mean MC predictions')
+
+        # Save fig
+        fig_path = os.path.join(save_dir, 'map_{}.png'.format(sample_num))
         plt.savefig(fig_path)
         plt.close(fig)

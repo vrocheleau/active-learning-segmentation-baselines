@@ -10,6 +10,9 @@ from active_learning.method_wrapper import MCDropoutUncert
 import torch.nn.functional as F
 from sklearn.model_selection import GridSearchCV
 from torch.optim import SGD, lr_scheduler
+import numpy as np
+from active_learning.heuristics import Random, MCDropoutUncertainty, MaxEntropy, BALD
+import scipy
 
 ex = Experiment('baseline_training', ingredients=[dataset_ingredient])
 
@@ -33,24 +36,17 @@ def get_optimizer_scheduler(model):
 @ex.automain
 def main(data_path, splits_path, preload, patch_size, batch_size, shuffle, manual_seed, epochs, n_classes):
 
-    cudnn.deterministic = True
     torch.manual_seed(manual_seed)
     random.seed(manual_seed)
 
     train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload, patch_size=patch_size)
-
-    # scheduler = lr_scheduler.StepLR(optimizer, step_size=30)
-    #
-    # train_loader = DataLoader(train_ds,
-    #                           batch_size=batch_size,
-    #                           sampler=ExpandedRandomSampler(train_ds.n, multiplier=8))
 
     # Load model
     model = UNet(in_channels=3, n_classes=n_classes, dropout=True)
 
     print(model)
 
-    method_wrapper = MCDropoutUncert(base_model=model, n_classes=n_classes)
+    method_wrapper = MCDropoutUncert(base_model=model, n_classes=n_classes, state_dict_path='state_dicts/baseline_model.pt')
 
     method_wrapper.train(train_ds=train_ds,
                          val_ds=val_ds,
@@ -61,6 +57,9 @@ def main(data_path, splits_path, preload, patch_size, batch_size, shuffle, manua
 
     test_metrics = method_wrapper.evaluate(DataLoader(dataset=test_ds, batch_size=1, shuffle=True), test=True)
 
-    method_wrapper.predict(val_ds, 50)
+    mc_preds = method_wrapper.predict(train_ds, 20)
+
+    heur = BALD()
+    idx = heur.get_to_label(mc_preds, model=None, n_to_label=5)
 
     print(test_metrics['mean_dice'])

@@ -18,7 +18,7 @@ from torch.backends import cudnn
 from active_learning.method_wrapper import MCDropoutUncert
 from active_learning import heuristics
 from torchvision import transforms
-from active_learning.maps import VarianceMap, EdtVarMap
+from active_learning.maps import VarianceMap, EdtVarMap, ComparativeVarianceMap
 
 ex = Experiment('al_training', ingredients=[dataset_ingredient])
 
@@ -34,7 +34,7 @@ def conf():
     epochs = 50
     al_cycles = 20
     n_data_to_label = 1
-    mc_iters = 50
+    mc_iters = 30
     base_state_dict_path = 'state_dicts/al_model.pt'
     heuristic = 'mc'
     run = 0
@@ -50,8 +50,13 @@ def save_prediction_maps(stacks_list, al_cycle, map_processor):
         shutil.rmtree(dir)
         os.mkdir(dir)
 
-    for i, (stack, name) in enumerate(tqdm(stacks_list, ncols=80, desc="Save pred maps")):
-        map_processor.process_maps(stack, name, i, dir)
+    for i, (stack, image, mask, name, lbl) in enumerate(tqdm(stacks_list, ncols=80, desc="Save pred maps")):
+        map_processor.process_maps(predictions=stack,
+                                   sample_name=name,
+                                   sample_num=i,
+                                   save_dir=dir,
+                                   input_img=image,
+                                   gt_img=mask)
 
 
 def get_optimizer_scheduler(model):
@@ -120,7 +125,7 @@ def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start,
         # Make predictions on unlabeled pool
         predictions = method_wrapper.predict(active_set.pool, n_predictions=mc_iters)
 
-        save_prediction_maps(predictions, al_it, map_processor=EdtVarMap())
+        save_prediction_maps(predictions, al_it, map_processor=ComparativeVarianceMap())
 
         heur = heuristics_dict[heuristic]
         to_label = heur.get_to_label(predictions=predictions, model=None, n_to_label=n_data_to_label)

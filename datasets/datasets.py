@@ -3,12 +3,14 @@ from torch.utils.data import Dataset
 import torchvision.transforms.functional as F
 from random import random, randint
 from os.path import join
-import torch
+import numpy as np
 from torchvision import transforms
+
 
 class SegDataset(Dataset):
 
-    def __init__(self, data_dir, rows, data_transform, mask_transform, preload, patch_size=None, augment=False, resize=None):
+    def __init__(self, data_dir, rows, data_transform, mask_transform, preload, patch_size=None, augment=False,
+                 resize=None):
         self.data_dir = data_dir
         self.rows = rows
         self.data_transform = data_transform
@@ -23,7 +25,6 @@ class SegDataset(Dataset):
             self.images = self.load_images(data_dir, [file for file, _, _ in rows])
             self.masks = self.load_images(data_dir, [mask for _, mask, _ in rows])
             self.labels = [lbl for _, _, lbl in rows]
-
 
     def __len__(self):
         return len(self.rows)
@@ -74,12 +75,9 @@ class SegDataset(Dataset):
         file_name = self.rows[item][0]
         return image, mask, label, file_name
 
-
     def load_images(self, data_dir, files):
         images = {}
         for f in files:
             path = join(data_dir, f)
             images[str(path)] = Image.open(path)
         return images
-
-

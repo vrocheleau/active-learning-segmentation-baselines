@@ -4,6 +4,7 @@ from sacred import Ingredient
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from baal.active.heuristics import BALD, Variance, Entropy
 
 class DoubleConv(nn.Sequential):
     def __init__(self, in_channels, out_channels, stride=1, dropout=False):
@@ -80,6 +81,15 @@ class UNet(nn.Module):
 
         return self.end_conv(x)
 
+from collections.abc import Sequence
+
+def _stack_preds(out):
+    if isinstance(out[0], Sequence):
+        out = [torch.stack(ts, dim=-1) for ts in zip(*out)]
+    else:
+        out = torch.stack(out, dim=-1)
+    return out
+
 if __name__ == '__main__':
     unet = UNet()
     # print(unet)
@@ -87,4 +97,13 @@ if __name__ == '__main__':
     x = torch.rand(1, 3, 733, 427)
 
     with torch.no_grad():
+        preds = [unet(x) for _ in range(20)]
+        preds_stack = _stack_preds(preds)
+
+        # heuristic = BALD()
+        heuristic = Variance()
+        # heuristic = Entropy()
+
+        metric = heuristic(preds_stack)
+
         print('Input:', x.shape, '-> UNet(input):', unet(x).shape)
