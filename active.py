@@ -1,24 +1,22 @@
-from torch.utils.data import DataLoader
-from sacred import Experiment
-from datasets.dataset_loaders import dataset_ingredient, load_glas
-from baal.active import ActiveLearningDataset, ActiveLearningLoop
-import torch
-from torch import nn, optim
-from torch.optim import SGD, lr_scheduler
+import os
 import random
-from models.unet import UNet
-from tqdm import tqdm
-from copy import deepcopy
+import shutil
+
 import numpy as np
-from matplotlib import pyplot
-from baal.bayesian.dropout import MCDropoutModule
-import os, shutil
-from sklearn.preprocessing import MinMaxScaler
+import torch
+from baal.active import ActiveLearningDataset
+from sacred import Experiment
 from torch.backends import cudnn
-from active_learning.method_wrapper import MCDropoutUncert
-from active_learning import heuristics
+from torch.optim import SGD, lr_scheduler
+from torch.utils.data import DataLoader
 from torchvision import transforms
-from active_learning.maps import VarianceMap, EdtVarMap, ComparativeVarianceMap
+from tqdm import tqdm
+
+from active_learning import heuristics
+from active_learning.maps import ComparativeVarianceMap
+from active_learning.method_wrapper import MCDropoutUncert
+from datasets.dataset_loaders import dataset_ingredient, load_glas
+from models.unet import UNet
 
 ex = Experiment('al_training', ingredients=[dataset_ingredient])
 
@@ -30,15 +28,15 @@ def conf():
     patch_size = (416, 416)
     batch_size = 16
     n_label_start = 5
-    manual_seed = 1337
+    manual_seed = None
     epochs = 50
     al_cycles = 20
     n_data_to_label = 1
-    mc_iters = 30
+    mc_iters = 50
     base_state_dict_path = 'state_dicts/al_model.pt'
     heuristic = 'mc'
     run = 0
-    results_dir = 'results/exp_4/'
+    results_dir = 'results/exp_5/'
 
 
 def save_prediction_maps(stacks_list, al_cycle, map_processor):
@@ -74,7 +72,8 @@ pool_specifics = {
 
 heuristics_dict = {
     'mc': heuristics.MCDropoutUncertainty(edt=True),
-    'rand': heuristics.Random()
+    'rand': heuristics.Random(),
+    'bald': heuristics.BALD()
 }
 
 @ex.automain
@@ -83,9 +82,11 @@ def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start,
 
     print("Start of AL experiment using {} heuristic".format(heuristic))
     torch.backends.cudnn.benchmark = True
-    torch.manual_seed(manual_seed)
-    random.seed(manual_seed)
-    np.random.seed(manual_seed)
+
+    if manual_seed:
+        torch.manual_seed(manual_seed)
+        random.seed(manual_seed)
+        np.random.seed(manual_seed)
 
     train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload, patch_size=patch_size)
     active_set = ActiveLearningDataset(train_ds, pool_specifics=pool_specifics)
@@ -125,7 +126,7 @@ def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start,
         # Make predictions on unlabeled pool
         predictions = method_wrapper.predict(active_set.pool, n_predictions=mc_iters)
 
-        save_prediction_maps(predictions, al_it, map_processor=ComparativeVarianceMap())
+        # save_prediction_maps(predictions, al_it, map_processor=ComparativeVarianceMap())
 
         heur = heuristics_dict[heuristic]
         to_label = heur.get_to_label(predictions=predictions, model=None, n_to_label=n_data_to_label)

@@ -55,12 +55,17 @@ class Random(AbstractHeuristic):
 
     def get_to_label(self, predictions, model, n_to_label):
 
-        if n_to_label > len(predictions):
-            return range(len(predictions))
+        # if n_to_label > len(predictions):
+        #     return range(len(predictions))
+        #
+        # idx = range(len(predictions))
+        # return random.sample(idx, k=n_to_label)
 
-        idx = range(len(predictions))
-        return random.sample(idx, k=n_to_label)
+        idx = np.arange(len(predictions))
+        for i in range(1000):
+            np.random.shuffle(idx)
 
+        return idx[:n_to_label]
 
 class BALD(AbstractHeuristic):
     """
@@ -87,6 +92,8 @@ class BALD(AbstractHeuristic):
             # [n_sample, n_class, ..., n_iterations]
             assert stack.ndim >= 3
             stack = np.expand_dims(stack, axis=0)
+
+            # BALD requires
             stack = softmax(stack, 1)
 
             expected_entropy = - np.mean(np.sum(xlogy(stack, stack), axis=1), axis=-1)
@@ -119,7 +126,10 @@ class MaxEntropy(AbstractHeuristic):
 
 
 if __name__ == "__main__":
+    # np.random.seed(1337)
 
-    samples = np.array([100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0, 1000])
+    samples = np.array(range(100))
 
-    print(get_top_scores(np.array(samples), 5))
+    heur = Random()
+
+    print(heur.get_to_label(samples, None, 5))
