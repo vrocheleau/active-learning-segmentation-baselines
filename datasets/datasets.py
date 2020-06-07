@@ -32,6 +32,7 @@ class SegDataset(Dataset):
     def __getitem__(self, item):
 
         image_path, mask_path, label = self.joined_rows[item]
+        label = int(label)
         if self.preload:
             image = self.images[image_path]
             mask = self.masks[mask_path]

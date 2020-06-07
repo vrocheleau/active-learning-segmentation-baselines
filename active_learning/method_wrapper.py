@@ -173,7 +173,9 @@ class MCDropoutUncert(AbstractMethodWrapper):
 
                 preds = [self.model(image).squeeze(0) for _ in range(n_predictions)]
                 stack = torch.stack(preds, dim=-1).cpu().numpy()
-                stack_tuple = (stack, image.cpu().numpy(), mask.numpy(), name, lbl)
+
+                # Return prediction as tuples of (mc_predictions, input_image, gt_mask, file_name, label)
+                stack_tuple = (stack, image.cpu().numpy(), mask.numpy(), name, lbl.item())
                 predictions.append(stack_tuple)
 
         return predictions

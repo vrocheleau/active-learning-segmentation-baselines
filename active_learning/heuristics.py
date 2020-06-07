@@ -4,16 +4,34 @@ from scipy.ndimage.morphology import distance_transform_edt
 from scipy.special import softmax, xlogy
 from tqdm import tqdm
 
-def get_top_scores(scores, n_to_label):
+
+def get_ranked_indexes(scores, n_to_label):
     sorted_idx = np.argsort(scores)[::-1]
     return sorted_idx[:n_to_label]
+
+
+def get_balanced_idx(ranked_indexes, predictions, n_to_label, num_classes):
+
+    idx = []
+    for c in range(num_classes):
+
+        class_count = 0
+        i = 0
+        while class_count < n_to_label:
+            stack, _, _, _, lbl = predictions[ranked_indexes[i]]
+            if c == lbl:
+                idx.append(ranked_indexes[i])
+                class_count += 1
+            i += 1
+    return idx
+
 
 class AbstractHeuristic:
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
 
-    def get_to_label(self, predictions, model, n_to_label):
+    def get_to_label(self, predictions, model, n_to_label, num_classes, balance_al):
         """
         Computes the scores and returns the indexes of samples to label
         :param predictions: Prediction logits [#batch_size, #classes, ..., #mc_iterations]
@@ -29,14 +47,14 @@ class MCDropoutUncertainty(AbstractHeuristic):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def get_to_label(self, predictions, model, n_to_label):
+    def get_to_label(self, predictions, model, n_to_label, num_classes, balance_al):
 
         if n_to_label > len(predictions):
             return range(len(predictions))
 
         uncertainties = np.zeros(len(predictions))
 
-        for i, (stack, _, _, _, _) in enumerate(predictions):
+        for i, (stack, _, _, _, lbl) in enumerate(predictions):
             pred_probs = softmax(stack, 0)
             pred_classes = np.argmax(pred_probs, 0)
             std = np.std(pred_classes, axis=-1)
@@ -48,24 +66,26 @@ class MCDropoutUncertainty(AbstractHeuristic):
                 sum_std = np.sum(std)
                 uncertainties[i] = sum_std / std.size
 
-        return get_top_scores(uncertainties, n_to_label)
+        if balance_al:
+            ranked_indexes = get_ranked_indexes(uncertainties, len(predictions))
+            return get_balanced_idx(ranked_indexes, predictions, n_to_label, num_classes)
+        else:
+            return get_ranked_indexes(uncertainties, n_to_label)
 
 
 class Random(AbstractHeuristic):
 
-    def get_to_label(self, predictions, model, n_to_label):
+    def get_to_label(self, predictions, model, n_to_label, num_classes, balance_al):
 
-        # if n_to_label > len(predictions):
-        #     return range(len(predictions))
-        #
-        # idx = range(len(predictions))
-        # return random.sample(idx, k=n_to_label)
-
-        idx = np.arange(len(predictions))
+        shuffled_indexes = np.arange(len(predictions))
         for i in range(1000):
-            np.random.shuffle(idx)
+            np.random.shuffle(shuffled_indexes)
 
-        return idx[:n_to_label]
+        if balance_al:
+            return get_balanced_idx(shuffled_indexes, predictions, n_to_label, num_classes)
+        else:
+            return shuffled_indexes[:n_to_label]
+
 
 class BALD(AbstractHeuristic):
     """
@@ -79,7 +99,7 @@ class BALD(AbstractHeuristic):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def get_to_label(self, predictions, model, n_to_label):
+    def get_to_label(self, predictions, model, n_to_label, num_classes, balance_al):
 
         if n_to_label > len(predictions):
             return range(len(predictions))
@@ -87,15 +107,16 @@ class BALD(AbstractHeuristic):
         scores = np.zeros(len(predictions))
 
         pbar = tqdm(predictions, ncols=80, desc='BALD scoring')
-        for i, (stack, _, _, _, _) in enumerate(pbar):
+        for i, (stack, _, _, _, lbl) in enumerate(pbar):
 
             # [n_sample, n_class, ..., n_iterations]
             assert stack.ndim >= 3
             stack = np.expand_dims(stack, axis=0)
 
-            # BALD requires
+            # requires probabilities
             stack = softmax(stack, 1)
 
+            # BALD score
             expected_entropy = - np.mean(np.sum(xlogy(stack, stack), axis=1), axis=-1)
             expected_p = np.mean(stack, axis=-1)
             entropy_expected_p = - np.sum(xlogy(expected_p, expected_p), axis=1)
@@ -104,7 +125,11 @@ class BALD(AbstractHeuristic):
             reduced_bald_acq = np.mean(bald_acq)
             scores[i] = reduced_bald_acq
 
-        return get_top_scores(scores, n_to_label)
+        if balance_al:
+            ranked_indexes = get_ranked_indexes(scores, len(predictions))
+            return get_balanced_idx(ranked_indexes, predictions, n_to_label, num_classes)
+        else:
+            return get_ranked_indexes(scores, n_to_label)
 
 
 class MaxEntropy(AbstractHeuristic):
@@ -112,17 +137,29 @@ class MaxEntropy(AbstractHeuristic):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def get_to_label(self, predictions, model, n_to_label):
+    def get_to_label(self, predictions, model, n_to_label, num_classes, balance_al):
 
         if n_to_label > len(predictions):
             return range(len(predictions))
 
         scores = np.zeros(len(predictions))
 
-        for i, (stack, _, _, _, _) in enumerate(predictions):
-            scores[i] = - np.mean(np.sum(stack * np.log(stack + 1e-10), axis=-1))
+        for i, (stack, _, _, _, lbl) in enumerate(predictions):
+            # [n_sample, n_class, ..., n_iterations]
+            assert stack.ndim >= 3
+            stack = np.expand_dims(stack, axis=0)
 
-        return get_top_scores(scores, n_to_label)
+            # requires probabilities
+            stack = softmax(stack, 1)
+
+            pixel_wise_entropy = - np.mean(np.sum(xlogy(stack, stack), axis=1), axis=-1)
+            scores[i] = np.mean(pixel_wise_entropy)
+
+        if balance_al:
+            ranked_indexes = get_ranked_indexes(scores, len(predictions))
+            return get_balanced_idx(ranked_indexes, predictions, n_to_label, num_classes)
+        else:
+            return get_ranked_indexes(scores, n_to_label)
 
 
 if __name__ == "__main__":
@@ -132,4 +169,3 @@ if __name__ == "__main__":
 
     heur = Random()
 
-    print(heur.get_to_label(samples, None, 5))

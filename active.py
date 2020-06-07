@@ -29,15 +29,17 @@ def conf():
     batch_size = 16
     n_label_start = 5
     manual_seed = None
-    epochs = 50
+    epochs = 5
     al_cycles = 20
     n_data_to_label = 1
-    mc_iters = 50
+    mc_iters = 1
     base_state_dict_path = 'state_dicts/al_model.pt'
     heuristic = 'mc'
     run = 0
     results_dir = 'results/exp_5/'
 
+    balance_al = True
+    num_classes = 2
 
 def save_prediction_maps(stacks_list, al_cycle, map_processor):
     # Check if map dirs exist
@@ -78,7 +80,7 @@ heuristics_dict = {
 
 @ex.automain
 def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start, manual_seed, epochs, al_cycles,
-         n_data_to_label, mc_iters, base_state_dict_path, heuristic, run, results_dir):
+         n_data_to_label, mc_iters, base_state_dict_path, heuristic, run, results_dir, balance_al, num_classes):
 
     print("Start of AL experiment using {} heuristic".format(heuristic))
     torch.backends.cudnn.benchmark = True
@@ -91,14 +93,14 @@ def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start,
     train_ds, test_ds, val_ds = load_glas(data_path, splits_path, preload, patch_size=patch_size)
     active_set = ActiveLearningDataset(train_ds, pool_specifics=pool_specifics)
 
-    # active_set.label_randomly(n_label_start)
-    active_set.label(range(n_label_start))
+    # Label 4 images, 2 for each class
+    active_set.label([0, 1, 2, 3])
 
     # Load model
-    model = UNet(in_channels=3, n_classes=2, dropout=True)
+    model = UNet(in_channels=3, n_classes=num_classes, dropout=True)
     print(model)
 
-    method_wrapper = MCDropoutUncert(base_model=model, n_classes=2, state_dict_path=base_state_dict_path)
+    method_wrapper = MCDropoutUncert(base_model=model, n_classes=num_classes, state_dict_path=base_state_dict_path)
 
     mean_dices = []
     last_cycle = False
@@ -129,7 +131,11 @@ def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start,
         # save_prediction_maps(predictions, al_it, map_processor=ComparativeVarianceMap())
 
         heur = heuristics_dict[heuristic]
-        to_label = heur.get_to_label(predictions=predictions, model=None, n_to_label=n_data_to_label)
+        to_label = heur.get_to_label(predictions=predictions,
+                                     model=None,
+                                     n_to_label=n_data_to_label,
+                                     num_classes=num_classes,
+                                     balance_al=balance_al)
 
         del predictions
 
