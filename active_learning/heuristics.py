@@ -54,12 +54,17 @@ class MCDropoutUncertainty(AbstractHeuristic):
 
         uncertainties = np.zeros(len(predictions))
 
-        for i, (stack, _, _, _, lbl) in enumerate(predictions):
+        pbar = tqdm(predictions, ncols=80, desc='Var edt ranking')
+        for i, (stack, _, _, _, lbl) in enumerate(pbar):
             pred_probs = softmax(stack, 0)
             pred_classes = np.argmax(pred_probs, 0)
             std = np.std(pred_classes, axis=-1)
             if self.kwargs['edt']:
-                transform = distance_transform_edt((1 - np.mean(pred_classes, axis=-1)))
+                # transform = distance_transform_edt((1 - np.mean(pred_classes, axis=-1)))
+                mean_preds = np.mean(pred_classes, axis=-1)
+                thresh_preds = (mean_preds > 0.5) * 1.0
+                transform = distance_transform_edt((1 - thresh_preds))
+
                 uncert = np.sum(np.multiply(std, transform))
                 uncertainties[i] = uncert / std.size
             else:
@@ -68,9 +73,9 @@ class MCDropoutUncertainty(AbstractHeuristic):
 
         if balance_al:
             ranked_indexes = get_ranked_indexes(uncertainties, len(predictions))
-            return get_balanced_idx(ranked_indexes, predictions, n_to_label, num_classes)
+            return get_balanced_idx(ranked_indexes, predictions, n_to_label, num_classes), uncertainties
         else:
-            return get_ranked_indexes(uncertainties, n_to_label)
+            return get_ranked_indexes(uncertainties, n_to_label), uncertainties
 
 
 class Random(AbstractHeuristic):
@@ -82,9 +87,9 @@ class Random(AbstractHeuristic):
             np.random.shuffle(shuffled_indexes)
 
         if balance_al:
-            return get_balanced_idx(shuffled_indexes, predictions, n_to_label, num_classes)
+            return get_balanced_idx(shuffled_indexes, predictions, n_to_label, num_classes), None
         else:
-            return shuffled_indexes[:n_to_label]
+            return shuffled_indexes[:n_to_label], None
 
 
 class BALD(AbstractHeuristic):
@@ -127,9 +132,9 @@ class BALD(AbstractHeuristic):
 
         if balance_al:
             ranked_indexes = get_ranked_indexes(scores, len(predictions))
-            return get_balanced_idx(ranked_indexes, predictions, n_to_label, num_classes)
+            return get_balanced_idx(ranked_indexes, predictions, n_to_label, num_classes), scores
         else:
-            return get_ranked_indexes(scores, n_to_label)
+            return get_ranked_indexes(scores, n_to_label), scores
 
 
 class MaxEntropy(AbstractHeuristic):
@@ -144,7 +149,8 @@ class MaxEntropy(AbstractHeuristic):
 
         scores = np.zeros(len(predictions))
 
-        for i, (stack, _, _, _, lbl) in enumerate(predictions):
+        pbar = tqdm(predictions, ncols=80, desc='Max entropy ranking')
+        for i, (stack, _, _, _, lbl) in enumerate(pbar):
             # [n_sample, n_class, ..., n_iterations]
             assert stack.ndim >= 3
             stack = np.expand_dims(stack, axis=0)
@@ -157,9 +163,9 @@ class MaxEntropy(AbstractHeuristic):
 
         if balance_al:
             ranked_indexes = get_ranked_indexes(scores, len(predictions))
-            return get_balanced_idx(ranked_indexes, predictions, n_to_label, num_classes)
+            return get_balanced_idx(ranked_indexes, predictions, n_to_label, num_classes), scores
         else:
-            return get_ranked_indexes(scores, n_to_label)
+            return get_ranked_indexes(scores, n_to_label), scores
 
 
 if __name__ == "__main__":

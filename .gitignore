@@ -10,3 +10,6 @@ active_learning/__pycache__/*
 results/*
 runs/*
 state_dicts/*
+*.sh
+wsl_cams/*
+uncerts/*

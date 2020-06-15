@@ -24,7 +24,7 @@ def conf():
     batch_size = 16
     shuffle = True
     manual_seed = 0
-    epochs = 1
+    epochs = 50
     n_classes = 2
     patch_size = (416, 416)
 
@@ -56,10 +56,5 @@ def main(data_path, splits_path, preload, patch_size, batch_size, shuffle, manua
                          opt_sch_callable=get_optimizer_scheduler)
 
     test_metrics = method_wrapper.evaluate(DataLoader(dataset=test_ds, batch_size=1, shuffle=True), test=True)
-
-    mc_preds = method_wrapper.predict(train_ds, 20)
-
-    heur = BALD()
-    idx = heur.get_to_label(mc_preds, model=None, n_to_label=5)
 
     print(test_metrics['mean_dice'])

@@ -20,7 +20,7 @@ class DoubleConv(nn.Sequential):
         ]
 
         if dropout:
-            modules_list.append(('dropout', nn.Dropout(0.2)))
+            modules_list.append(('dropout', nn.Dropout(0.1)))
 
         layers = OrderedDict(modules_list)
 
@@ -51,11 +51,11 @@ class UNet(nn.Module):
         ])
 
         self.up_convs = nn.ModuleList([
-            DoubleConv(self.base_width * 48, self.base_width * 16),
-            DoubleConv(self.base_width * 24, self.base_width * 8),
-            DoubleConv(self.base_width * 12, self.base_width * 4),
-            DoubleConv(self.base_width * 6, self.base_width * 2),
-            DoubleConv(self.base_width * 3, self.base_width),
+            DoubleConv(self.base_width * 48, self.base_width * 16, dropout=dropout),
+            DoubleConv(self.base_width * 24, self.base_width * 8, dropout=dropout),
+            DoubleConv(self.base_width * 12, self.base_width * 4, dropout=dropout),
+            DoubleConv(self.base_width * 6, self.base_width * 2, dropout=dropout),
+            DoubleConv(self.base_width * 3, self.base_width, dropout=dropout),
         ])
 
         self.end_conv = nn.Conv2d(self.base_width, n_classes, kernel_size=1)
