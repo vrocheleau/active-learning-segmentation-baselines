@@ -30,6 +30,7 @@ def conf():
 
 def get_optimizer_scheduler(model):
     optimizer = SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4, nesterov=True)
+    # scheduler = lr_scheduler.StepLR(optimizer, step_size=40)
     scheduler = lr_scheduler.StepLR(optimizer, step_size=40)
     return optimizer, scheduler
 
@@ -50,11 +51,12 @@ def main(data_path, splits_path, preload, patch_size, batch_size, shuffle, manua
 
     method_wrapper.train(train_ds=train_ds,
                          val_ds=val_ds,
-                         test_ds=test_ds,
                          epochs=epochs,
                          batch_size=batch_size,
                          opt_sch_callable=get_optimizer_scheduler)
 
     test_metrics = method_wrapper.evaluate(DataLoader(dataset=test_ds, batch_size=1, shuffle=True), test=True)
+    bma_test_metrics = method_wrapper.test_bma(test_ds, n_predictions=20)
 
     print(test_metrics['mean_dice'])
+    print(bma_test_metrics['mean_dice'])

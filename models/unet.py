@@ -20,7 +20,7 @@ class DoubleConv(nn.Sequential):
         ]
 
         if dropout:
-            modules_list.append(('dropout', nn.Dropout(0.1)))
+            modules_list.append(('dropout', nn.Dropout(0.2)))
 
         layers = OrderedDict(modules_list)
 

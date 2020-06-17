@@ -10,6 +10,7 @@ from utils.utils import ExpandedRandomSampler
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
+from kornia.losses import DiceLoss
 
 class AbstractMethodWrapper:
 
@@ -36,13 +37,13 @@ class MCDropoutUncert(AbstractMethodWrapper):
     def __init__(self, base_model, n_classes, state_dict_path):
         super().__init__(base_model, n_classes, state_dict_path)
         self.model = MCDropoutModule(base_model)
-        # self.base_state_dict = deepcopy(self.model.module.state_dict())
-        torch.save(self.model.state_dict(), self.state_dict_path)
+        # torch.save(self.model.state_dict(), self.state_dict_path)
+        self.base_state_dict = deepcopy(self.model.state_dict())
 
     def train(self, train_ds, val_ds, epochs, batch_size, opt_sch_callable, test_ds=None, model_checkpoint=True, early_stopping=False):
 
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        self.model = torch.nn.DataParallel(self.model)
+        # self.model = torch.nn.DataParallel(self.model)
         self.model.to(device)
 
         optimizer, scheduler = opt_sch_callable(self.model)
@@ -57,7 +58,7 @@ class MCDropoutUncert(AbstractMethodWrapper):
             test_loader = DataLoader(test_ds, batch_size=1, shuffle=False)
 
         best_val_loss = float('inf')
-        best_state_dict = self.model.state_dict()
+        best_state_dict = deepcopy(self.model.state_dict())
 
         writer = SummaryWriter()
 
@@ -72,8 +73,10 @@ class MCDropoutUncert(AbstractMethodWrapper):
 
                 out = self.model(images)
 
-                # loss = self.criterion(out, class_masks)
-                loss = F.cross_entropy(out, class_masks)
+                # loss = F.cross_entropy(out, class_masks)
+                dice_loss = DiceLoss()
+                loss = dice_loss(out, class_masks)
+
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -118,7 +121,9 @@ class MCDropoutUncert(AbstractMethodWrapper):
                 class_masks = (mask != 0).long()
 
                 seg_logits = self.model(image)
-                loss = F.cross_entropy(seg_logits, class_masks).item()
+                # loss = F.cross_entropy(seg_logits, class_masks).item()
+                dice_loss = DiceLoss()
+                loss = dice_loss(seg_logits, class_masks).item()
 
                 seg_preds = seg_logits.argmax(1)
                 evaluator.add_batch(class_masks, seg_preds)
@@ -180,7 +185,81 @@ class MCDropoutUncert(AbstractMethodWrapper):
 
         return predictions
 
+    def test_bma(self, dataset, n_predictions):
+        self.model.eval()
+        loader = DataLoader(dataset, batch_size=1, shuffle=False)
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+        with torch.no_grad():
+            if n_predictions == 1:
+                return self.evaluate(loader=loader, test=True)
+            else:
+
+                all_labels = []
+                all_losses = []
+                all_seg_preds = []
+                all_dices = []
+                all_ious = []
+                evaluator = Evaluator(2)
+                image_evaluator = Evaluator(2)
+
+                for image, mask, lbl, name in tqdm(loader, ncols=80, desc='Test MC predictions'):
+                    image, mask = image.to(device), mask.squeeze(1).to(device, non_blocking=True)
+                    class_masks = (mask != 0).long()
+
+                    # MC predictions
+                    preds = [self.model(image) for _ in range(n_predictions)]
+                    stack = torch.stack(preds, dim=-1)
+                    seg_logits = stack.mean(dim=-1)
+
+                    dice_loss = DiceLoss()
+
+                    loss = dice_loss(seg_logits, class_masks).item()
+
+                    seg_preds = seg_logits.argmax(1)
+                    evaluator.add_batch(class_masks, seg_preds)
+                    image_evaluator.add_batch(class_masks, seg_preds)
+                    dices = image_evaluator.dice()
+                    ious = image_evaluator.intersection_over_union()
+                    image_evaluator.reset()
+
+                    all_labels.append(lbl[0])
+                    all_losses.append(loss)
+                    all_dices.append(dices.cpu())
+                    all_ious.append(ious.cpu())
+                    all_seg_preds.append(seg_preds.squeeze(0).byte().cpu().numpy().astype('bool'))
+
+                all_labels = np.array(all_labels)
+                all_losses = np.array(all_losses)
+                all_dices = torch.stack(all_dices, 0)
+                all_ious = torch.stack(all_ious, 0)
+
+            dices = evaluator.dice()
+            ious = evaluator.intersection_over_union()
+
+            metrics = {
+                'images_path': loader.dataset.rows,
+                'labels': all_labels,
+                'losses': all_losses,
+                'dice_background_per_image': all_dices[:, 0].numpy(),
+                'mean_dice_background': all_dices[:, 0].numpy().mean(),
+                'dice_background': dices[0].item(),
+                'dice_per_image': all_dices[:, 1].numpy(),
+                'mean_dice': all_dices[:, 1].numpy().mean(),
+                'dice': dices[1].item(),
+                'iou_background_per_image': all_ious[:, 0].numpy(),
+                'mean_iou_background': all_ious[:, 0].numpy().mean(),
+                'iou_background': ious[0].item(),
+                'iou_per_image': all_ious[:, 1].numpy(),
+                'mean_iou': all_ious[:, 1].numpy().mean(),
+                'iou': ious[1].item(),
+            }
+
+            return metrics
+
+
+
     def reset_params(self):
-        self.model = MCDropoutModule(self.base_model)
-        self.model.load_state_dict(torch.load(self.state_dict_path))
-        # self.base_state_dict = deepcopy(self.model.module.state_dict())
+        # self.model = MCDropoutModule(self.base_model)
+        # self.model.load_state_dict(torch.load(self.state_dict_path))
+        self.model.load_state_dict(self.base_state_dict)

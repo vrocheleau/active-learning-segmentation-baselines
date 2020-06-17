@@ -58,18 +58,16 @@ class MCDropoutUncertainty(AbstractHeuristic):
         for i, (stack, _, _, _, lbl) in enumerate(pbar):
             pred_probs = softmax(stack, 0)
             pred_classes = np.argmax(pred_probs, 0)
-            std = np.std(pred_classes, axis=-1)
+            var = np.var(pred_classes, axis=-1)
             if self.kwargs['edt']:
-                # transform = distance_transform_edt((1 - np.mean(pred_classes, axis=-1)))
                 mean_preds = np.mean(pred_classes, axis=-1)
                 thresh_preds = (mean_preds > 0.5) * 1.0
-                transform = distance_transform_edt((1 - thresh_preds))
+                transform = distance_transform_edt(thresh_preds)
+                transform = transform / transform.max()
 
-                uncert = np.sum(np.multiply(std, transform))
-                uncertainties[i] = uncert / std.size
+                uncertainties[i] = np.multiply(var, transform).mean()
             else:
-                sum_std = np.sum(std)
-                uncertainties[i] = sum_std / std.size
+                uncertainties[i] = var.mean()
 
         if balance_al:
             ranked_indexes = get_ranked_indexes(uncertainties, len(predictions))

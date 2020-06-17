@@ -24,6 +24,7 @@ from models.unet import UNet
 
 ex = Experiment('al_training', ingredients=[dataset_ingredient])
 
+
 @ex.config
 def conf():
     data_path = 'data/GlaS'
@@ -40,8 +41,8 @@ def conf():
     base_state_dict_path = 'state_dicts/al_model.pt'
     heuristic = 'mc'
     run = 0
-    results_dir = 'results/exp_7/'
-    save_maps = True
+    results_dir = 'results/exp_9/'
+    save_maps = False
     balance_al = True
     num_classes = 2
     save_uncerts = False
@@ -102,7 +103,7 @@ pool_specifics = {
 }
 
 heuristics_dict = {
-    'mc': heuristics.MCDropoutUncertainty(edt=True),
+    'mc': heuristics.MCDropoutUncertainty(edt=False),
     'rand': heuristics.Random(),
     'bald': heuristics.BALD(),
     'max': heuristics.MaxEntropy()
@@ -151,8 +152,10 @@ def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start,
                              batch_size=batch_size,
                              opt_sch_callable=get_optimizer_scheduler)
 
-        test_metrics = method_wrapper.evaluate(DataLoader(dataset=test_ds, batch_size=1, shuffle=False), test=True)
+        # test_metrics = method_wrapper.evaluate(DataLoader(dataset=test_ds, batch_size=1, shuffle=False), test=True)
+        test_metrics = method_wrapper.test_bma(dataset=test_ds, n_predictions=mc_iters)
         mean_dices.append(test_metrics['mean_dice'])
+        print('Test bma mean dice: {}'.format(test_metrics['mean_dice']))
 
         if last_cycle:
             print("Every sample from the pool has been labeled, closing AL loop.")

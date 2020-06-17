@@ -9,6 +9,7 @@ import seaborn as sns
 from utils.utils import get_paths, get_files
 from os.path import join
 
+
 class AbstractMapProcessor:
 
     def process_maps(self, predictions, sample_name, sample_num, save_dir, input_img=None, gt_img=None, scores=None):
@@ -51,6 +52,7 @@ class EdtVarMap(AbstractMapProcessor):
         plt.savefig(fig_path)
         plt.close(fig)
 
+
 class ComparativeVarianceMap(AbstractMapProcessor):
 
     def process_maps(self, predictions, sample_name, sample_num, save_dir, input_img=None, gt_img=None, scores=None):
@@ -67,10 +69,12 @@ class ComparativeVarianceMap(AbstractMapProcessor):
         thresh_mean_preds = (mean_preds > 0.5) * 1.0
 
         # variance map
-        std = np.std(pred_classes, axis=-1)
-        # transform = distance_transform_edt((1 - thresh_mean_preds))
-        # std = np.multiply(std, transform)
-        map = MinMaxScaler().fit_transform(std)
+        # std = np.std(pred_classes, axis=-1)
+        var = np.var(pred_classes, axis=-1)
+        # transform = distance_transform_edt(thresh_mean_preds)
+        # transform = transform / transform.max()
+        # var = np.multiply(var, transform)
+        map = MinMaxScaler().fit_transform(var)
 
         fig, ((ax1, ax2, ax5), (ax3, ax4, ax6)) = plt.subplots(2, 3, figsize=(15, 10))
 
@@ -84,6 +88,7 @@ class ComparativeVarianceMap(AbstractMapProcessor):
         # pcm = ax2.pcolormesh(map, cmap='viridis')
         # fig.colorbar(pcm, ax=ax2)
         ax2.imshow(map, cmap='viridis')
+
 
         # Plot gt image
         ax3.imshow(gt_image.squeeze(0))
