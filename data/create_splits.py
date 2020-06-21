@@ -44,9 +44,9 @@ class GlasSplit():
 
         base = '../data/splits/glas/{}'
 
-        # self.write_splits_csv(base.format('train.csv'), train_files, train_masks, train_labels)
-        # self.write_splits_csv(base.format('test.csv'), test_files, test_masks, test_labels)
-        # self.write_splits_csv(base.format('val.csv'), val_files, val_masks, val_labels)
+        self.write_splits_csv(base.format('train.csv'), train_files, train_masks, train_labels)
+        self.write_splits_csv(base.format('test.csv'), test_files, test_masks, test_labels)
+        self.write_splits_csv(base.format('val.csv'), val_files, val_masks, val_labels)
 
 
 if __name__ == '__main__':
