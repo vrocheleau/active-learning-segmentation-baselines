@@ -1,11 +1,13 @@
 # active-learning-segmentation-baselines
 
 PyTorch implementations of active learning heuristics for deep semantic segmentation on histology image data. 
-The code in this directory focuses on [deep bayesian active learning](https://arxiv.org/abs/1703.02910) techniques, 
-where we use Monte Carlo dropout in order to approximate a model's epistemic uncertainty in order to draw samples from a
-pool for annotation in order to minimize the labeling cost and maximise model performance.
+The code in this directory focuses on [deep bayesian active learning](https://arxiv.org/abs/1703.02910) techniques. 
+Monte Carlo dropout is used to approximate a model's epistemic uncertainty in order to draw samples from a
+pool for annotation, which aims to minimize the labeling cost and maximise model performance.
 
 For an overview of active learning in general see this [survey](http://burrsettles.com/pub/settles.activelearning.pdf).
+
+
 
 ## Active learning heuristics
 
@@ -57,4 +59,10 @@ python3 active.py with heuristic='bald' run=4 mc_iters=20 results_dir='results'
 
 Where the ```run``` number corresponds to an experiment's number, mean dice scores over the test set are saved as numpy 
 arrays in the results_dir. Other default experiment parameters can be changed using the cmd line interface, to see them
- go to the ``` conf()``` Sacred decorator function in [active.py](active.py)
+ go to the ``` conf()``` Sacred decorator function in [active.py](active.py).
+ 
+ ## Acknowledments
+
+This repository uses code from [survey_wsl_histology](https://github.com/jeromerony/survey_wsl_histology/blob/master/README.md) 
+for the UNet model and data processing for GlaS, and from [baal](https://baal.readthedocs.io/en/latest/) for the useful 
+active learning dataset wrapper and MC dropout patcher.
