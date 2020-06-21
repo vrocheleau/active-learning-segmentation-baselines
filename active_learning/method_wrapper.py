@@ -40,6 +40,13 @@ class MCDropoutUncert(AbstractMethodWrapper):
         # torch.save(self.model.state_dict(), self.state_dict_path)
         self.base_state_dict = deepcopy(self.model.state_dict())
 
+    def get_loss(self, out, class_masks):
+        # loss = F.cross_entropy(out, class_masks)
+        dice_loss = DiceLoss()
+        loss = dice_loss(out, class_masks)
+
+        return loss
+
     def train(self, train_ds, val_ds, epochs, batch_size, opt_sch_callable, test_ds=None, model_checkpoint=True, early_stopping=False):
 
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -74,8 +81,9 @@ class MCDropoutUncert(AbstractMethodWrapper):
                 out = self.model(images)
 
                 # loss = F.cross_entropy(out, class_masks)
-                dice_loss = DiceLoss()
-                loss = dice_loss(out, class_masks)
+                # # dice_loss = DiceLoss()
+                # # loss = dice_loss(out, class_masks)
+                loss = self.get_loss(out, class_masks)
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -122,8 +130,10 @@ class MCDropoutUncert(AbstractMethodWrapper):
 
                 seg_logits = self.model(image)
                 # loss = F.cross_entropy(seg_logits, class_masks).item()
-                dice_loss = DiceLoss()
-                loss = dice_loss(seg_logits, class_masks).item()
+                # # dice_loss = DiceLoss()
+                # # loss = dice_loss(seg_logits, class_masks).item()
+                loss = self.get_loss(seg_logits, class_masks).item()
+
 
                 seg_preds = seg_logits.argmax(1)
                 evaluator.add_batch(class_masks, seg_preds)
@@ -212,9 +222,10 @@ class MCDropoutUncert(AbstractMethodWrapper):
                     stack = torch.stack(preds, dim=-1)
                     seg_logits = stack.mean(dim=-1)
 
-                    dice_loss = DiceLoss()
-
-                    loss = dice_loss(seg_logits, class_masks).item()
+                    # loss = F.cross_entropy(seg_logits, class_masks).item()
+                    # # dice_loss = DiceLoss()
+                    # # loss = dice_loss(seg_logits, class_masks).item()
+                    loss = self.get_loss(seg_logits, class_masks).item()
 
                     seg_preds = seg_logits.argmax(1)
                     evaluator.add_batch(class_masks, seg_preds)

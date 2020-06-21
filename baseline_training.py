@@ -9,7 +9,7 @@ from models.unet import UNet
 from active_learning.method_wrapper import MCDropoutUncert
 import torch.nn.functional as F
 from sklearn.model_selection import GridSearchCV
-from torch.optim import SGD, lr_scheduler
+from torch.optim import SGD, lr_scheduler, Adam
 import numpy as np
 from active_learning.heuristics import Random, MCDropoutUncertainty, MaxEntropy, BALD
 import scipy
@@ -24,13 +24,17 @@ def conf():
     batch_size = 16
     shuffle = True
     manual_seed = 0
-    epochs = 50
+    epochs = 60
     n_classes = 2
     patch_size = (416, 416)
 
 def get_optimizer_scheduler(model):
+    # optimizer = SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4, nesterov=True)
+    # scheduler = lr_scheduler.StepLR(optimizer, step_size=)
+
+    # optimizer = Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
     optimizer = SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4, nesterov=True)
-    # scheduler = lr_scheduler.StepLR(optimizer, step_size=40)
+
     scheduler = lr_scheduler.StepLR(optimizer, step_size=40)
     return optimizer, scheduler
 
@@ -51,6 +55,7 @@ def main(data_path, splits_path, preload, patch_size, batch_size, shuffle, manua
 
     method_wrapper.train(train_ds=train_ds,
                          val_ds=val_ds,
+                         # test_ds=test_ds,
                          epochs=epochs,
                          batch_size=batch_size,
                          opt_sch_callable=get_optimizer_scheduler)

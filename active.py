@@ -34,16 +34,16 @@ def conf():
     batch_size = 16
     n_label_start = 5
     manual_seed = None
-    epochs = 50
-    al_cycles = 10
+    epochs = 60  # Training epochs for each al cycle
+    al_cycles = 15  # Number of active learning iterations
     n_data_to_label = 1
     mc_iters = 20
     base_state_dict_path = 'state_dicts/al_model.pt'
     heuristic = 'mc'
     run = 0
-    results_dir = 'results/exp_9/'
-    save_maps = False
-    balance_al = True
+    results_dir = 'results/exp_10/'
+    save_maps = False  # Saves prediction map visualisations images
+    balance_al = True  # Balance the pooling process by picking n_data_to_label examples for each image-level class
     num_classes = 2
     save_uncerts = False
 
@@ -72,7 +72,6 @@ def save_prediction_maps(stacks_list, al_cycle, map_processor, heuristic, uncert
 
 
 def save_uncert_histogram(uncertainties, heuristic_name):
-
     dir = 'uncerts/{}/'.format(heuristic_name)
     if not os.path.isdir(dir):
         os.mkdir(dir)
@@ -81,7 +80,6 @@ def save_uncert_histogram(uncertainties, heuristic_name):
         os.mkdir(dir)
 
     for i, scores in enumerate(uncertainties):
-
         fig = plt.figure()
         sns.distplot(scores, hist=False, rug=True)
         plt.title('Uncertainty density ({} samples)'.format(len(scores)))
@@ -109,10 +107,16 @@ heuristics_dict = {
     'max': heuristics.MaxEntropy()
 }
 
+initial_samples = {
+    4: [0, 1, 2, 3],
+    8: [0, 1, 2, 3, ]
+}
+
+
 @ex.automain
 def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start, manual_seed, epochs, al_cycles,
-         n_data_to_label, mc_iters, base_state_dict_path, heuristic, run, results_dir, balance_al, num_classes, save_maps, save_uncerts):
-
+         n_data_to_label, mc_iters, base_state_dict_path, heuristic, run, results_dir, balance_al, num_classes,
+         save_maps, save_uncerts):
     print("Start of AL experiment using {} heuristic".format(heuristic))
     torch.backends.cudnn.benchmark = True
 
@@ -136,6 +140,7 @@ def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start,
     acq_scores = []
     mean_dices = []
     last_cycle = False
+
     for al_it in range(al_cycles + 1):
 
         print("##### ACTIVE LEARNING ITERATION {}/{}#####".format(al_it, al_cycles))
@@ -153,7 +158,7 @@ def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start,
                              opt_sch_callable=get_optimizer_scheduler)
 
         # test_metrics = method_wrapper.evaluate(DataLoader(dataset=test_ds, batch_size=1, shuffle=False), test=True)
-        test_metrics = method_wrapper.test_bma(dataset=test_ds, n_predictions=mc_iters)
+        test_metrics = method_wrapper.test_bma(dataset=test_ds, n_predictions=20)
         mean_dices.append(test_metrics['mean_dice'])
         print('Test bma mean dice: {}'.format(test_metrics['mean_dice']))
 
@@ -166,15 +171,18 @@ def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start,
 
         heur = heuristics_dict[heuristic]
         to_label, scores = heur.get_to_label(predictions=predictions,
-                                     model=None,
-                                     n_to_label=n_data_to_label,
-                                     num_classes=num_classes,
-                                     balance_al=balance_al)
+                                             model=None,
+                                             n_to_label=n_data_to_label,
+                                             num_classes=num_classes,
+                                             balance_al=balance_al)
 
         if save_maps:
-            save_prediction_maps(predictions, al_it, map_processor=ComparativeVarianceMap(), heuristic=heuristic, uncertainties=scores)
+            save_prediction_maps(predictions, al_it, map_processor=ComparativeVarianceMap(), heuristic=heuristic,
+                                 uncertainties=scores)
 
+        # Avoids memory issues
         del predictions
+
         acq_scores.append(scores)
 
         # Label new samples
@@ -184,6 +192,10 @@ def main(data_path, splits_path, preload, patch_size, batch_size, n_label_start,
             last_cycle = True
 
     print(mean_dices)
+
+    if not os.path.isdir(results_dir):
+        os.mkdir(results_dir)
+
     np.save(results_dir + '{}_{}.npy'.format(heuristic, run), np.array(mean_dices))
     if save_uncerts:
         save_uncert_histogram(acq_scores, heuristic)

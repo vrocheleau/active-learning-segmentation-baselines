@@ -105,7 +105,8 @@ class ComparativeVarianceMap(AbstractMapProcessor):
         ax5.vlines(img_score, 0, ax5.get_ylim()[1] * 0.25, colors='r')
 
         # Plot WSL cam pred
-        wsl_model = 'deepmil_multi'
+        # wsl_model = 'deepmil_multi'
+        wsl_model = 'max'
         wsl_cam = get_wsl_cam(sample_name, model=wsl_model)
         ax6.imshow(wsl_cam)
         ax6.set_title('WSL {} CAM pred'.format(wsl_model))
